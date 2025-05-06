@@ -149,7 +149,8 @@ val_size = len(train_dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
 valid_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-optimizers = [CustomOptimizer, AdagradOptimizer, AdamOptimizer, PAdagradOptimizer, [AdamOptimizer, CustomOptimizer],CustomZeroOrderOptimizer]
+#optimizers = [CustomOptimizer, AdagradOptimizer, AdamOptimizer, PAdagradOptimizer, [AdamOptimizer, CustomOptimizer]]
+optimizers = [SGDMomentum]
 for i,optimizer in enumerate(optimizers):
     model = nn.Sequential(
         nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
@@ -251,6 +252,7 @@ for i,optimizer in enumerate(optimizers):
     plt.legend()
     plt.savefig(f'loss_curve_{optimizer.__name__}_img_avg.png')
     continue
+
 class RNN(nn.Module):
     def __init__(self, vocab_size, embedding_dim, hidden_dim):
         super(RNN, self).__init__()
@@ -267,6 +269,7 @@ loss_fn = nn.CrossEntropyLoss()
 from imdb import train_dataloader, val_dataloader
 train_loader = train_dataloader
 valid_loader = val_dataloader
+
 for i,optimizer in enumerate(optimizers):
     rnn = RNN(vocab_size, 128, 128)
     print(f"Training with {optimizer}")
@@ -298,7 +301,7 @@ for i,optimizer in enumerate(optimizers):
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
-        plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_img_noavg.png')
+        plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_txt_noavg.png')
         continue
     loss_curve, valid_curve = loop(train_loader, valid_loader, rnn, loss_fn, optimizer,averaging=True)
     plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
@@ -311,8 +314,10 @@ for i,optimizer in enumerate(optimizers):
     plt.legend()
     plt.savefig(f'loss_curve_{optimizer.__name__}_txt_noavg.png')
     continue
+
 for i,optimizer in enumerate(optimizers):
     print(f"Training with {optimizer}")
+    rnn = RNN(vocab_size, 128, 128)
     plt.figure(figsize=(12, 4))
     plt.subplot(1,2,1)
     if optimizer == CustomZeroOrderOptimizer:
@@ -325,7 +330,7 @@ for i,optimizer in enumerate(optimizers):
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
-        plt.savefig(f'loss_curve_{optimizer.__name__}_img_avg.png')
+        plt.savefig(f'loss_curve_{optimizer.__name__}_txt_avg.png')
         continue
     try:
         catching = optimizer[0]
@@ -341,7 +346,7 @@ for i,optimizer in enumerate(optimizers):
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
-        plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_img_noavg.png')
+        plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_txt_avg.png')
         continue
     loss_curve, valid_curve = loop(train_loader, valid_loader, rnn, loss_fn, optimizer,averaging=True)
     plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
@@ -352,5 +357,5 @@ for i,optimizer in enumerate(optimizers):
     plt.xlabel('Batch')
     plt.ylabel('Validation Accuracy')
     plt.legend()
-    plt.savefig(f'loss_curve_{optimizer.__name__}_img_avg.png')
+    plt.savefig(f'loss_curve_{optimizer.__name__}_txt_avg.png')
     continue
