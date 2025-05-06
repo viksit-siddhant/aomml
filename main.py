@@ -23,7 +23,9 @@ def loop(dataloader,valid_loader, model, loss_fn, optimizer, lr = 0.001,epochs=1
         avg = Averager(model)
     loss_curve = []
     valid_curve = []
+    ema_loss = [10]
     for epoch in range(epochs):
+        count = 0
         print(f"Epoch {epoch+1}/{epochs}")
         for X,y in tqdm(dataloader):
             # Compute prediction and loss
@@ -37,8 +39,10 @@ def loop(dataloader,valid_loader, model, loss_fn, optimizer, lr = 0.001,epochs=1
                 avg.update(model)
                 model = avg.get_model()
             loss_curve.append(loss.item())
+            ema_loss.append(ema_loss[-1]*0.99 + loss.item()*0.01)
+            count += 1
             with torch.no_grad():
-                if random.random()<0.0001:
+                if count % 200 == 0:
                     acc = 0
                     for X_val,y_val in valid_loader:
                         #validation accuracy
@@ -48,15 +52,20 @@ def loop(dataloader,valid_loader, model, loss_fn, optimizer, lr = 0.001,epochs=1
                         acc += (pred_val == y_val).float().mean()
                     acc /= len(valid_loader)
                     valid_curve.append(acc.item())
+            if len(ema_loss) > 400 and ema_loss[-401]-ema_loss[-1] < 0.001:
+                print("Early stopping")
+                break
     return loss_curve, valid_curve
 
 def two_loop_optimizer(dataloader, valid_loader, model, loss_fn, optimizer1, optimizer2, lr = 0.001, epochs=1, threshold=0.1):
     optim1 = optimizer1(model.parameters(), lr=lr)
     optim2 = optimizer2(model.parameters(), lr=lr)
     loss_curve = []
+    ema_loss = [100]
     valid_curve = []
     for epoch in range(epochs):
         print(f"Epoch {epoch+1}/{epochs}")
+        count = 0
         for i,(X,y) in tqdm(enumerate(dataloader)):
             # Compute prediction and loss
             pred = model(X)
@@ -71,8 +80,13 @@ def two_loop_optimizer(dataloader, valid_loader, model, loss_fn, optimizer1, opt
                 loss.backward()
                 optim2.step()
             loss_curve.append(loss.item())
+            ema_loss.append(ema_loss[-1]*0.99 + loss.item()*0.01)
+            count += 1
+            if len(ema_loss) > 400 and ema_loss[-401]-ema_loss[-1] < 0.001:
+                print("Early stopping")
+                break
             with torch.no_grad():
-                if random.random()<0.0001:
+                if count % 200 == 0:
                     acc = 0
                     for X_val,y_val in valid_loader:
                         #validation accuracy
@@ -89,10 +103,12 @@ def zeroth_order_loop(dataloader, valid_loader, model, loss_fn, optimizer, lr = 
     optim = optimizer(model.parameters(), lr=lr, loss_fn=loss_fn, rand_directions=2)
     loss_curve = []
     valid_curve = []
+    ema_loss = [100]
     if averaging:
         avg = Averager(model)
     for epoch in range(epochs):
         print(f"Epoch {epoch+1}/{epochs}")
+        count = 0
         for X,y in tqdm(dataloader):
             with torch.no_grad():
                 pred = model(X)
@@ -103,8 +119,13 @@ def zeroth_order_loop(dataloader, valid_loader, model, loss_fn, optimizer, lr = 
             if averaging:
                 avg.update(model)
                 model = avg.get_model()
+            count += 1
+            ema_loss.append(ema_loss[-1]*0.99 + loss.item()*0.01)
+            if len(ema_loss) > 400 and ema_loss[-401]-ema_loss[-1] < 0.001:
+                print("Early stopping")
+                break
             with torch.no_grad():
-                if random.random()<0.0001:
+                if count % 200 == 0:
                     acc = 0
                     for X_val,y_val in valid_loader:
                         #validation accuracy
@@ -128,7 +149,7 @@ val_size = len(train_dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
 train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
 valid_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
-optimizers = [CustomOptimizer, AdagradOptimizer, AdamOptimizer, PAdagradOptimizer, [AdamOptimizer, CustomOptimizer]]
+optimizers = [CustomOptimizer, AdagradOptimizer, AdamOptimizer, PAdagradOptimizer, [AdamOptimizer, CustomOptimizer],CustomZeroOrderOptimizer]
 for i,optimizer in enumerate(optimizers):
     model = nn.Sequential(
         nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
@@ -137,7 +158,7 @@ for i,optimizer in enumerate(optimizers):
         nn.Flatten(),
         nn.Linear(14*14*32, 10)
     )
-    print(f"Training with {optimizer.__name__}")
+    print(f"Training with {optimizer}")
     plt.figure(figsize=(12, 4))
     plt.subplot(1,2,1)
     if optimizer == CustomZeroOrderOptimizer:
@@ -153,19 +174,21 @@ for i,optimizer in enumerate(optimizers):
         plt.savefig(f'loss_curve_{optimizer.__name__}_img_noavg.png')
         continue
     try:
+        catching = optimizer[0]
+    except:
+        pass
+    else:
         loss_curve, valid_curve = two_loop_optimizer(train_loader, valid_loader, model, loss_fn, optimizer[0], optimizer[1])
-        plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
+        plt.plot(moving_average(loss_curve,100), label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Loss')
         plt.subplot(1,2,2)
-        plt.plot(valid_curve, label=optimizer.__name__)
+        plt.plot(valid_curve, label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
         plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_img_noavg.png')
         continue
-    except:
-        pass
     loss_curve, valid_curve = loop(train_loader, valid_loader,model, loss_fn, optimizer)
     plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
     plt.xlabel('Batch')
@@ -185,7 +208,7 @@ for i,optimizer in enumerate(optimizers):
         nn.Flatten(),
         nn.Linear(14*14*32, 10)
     )
-    print(f"Training with {optimizer.__name__}")
+    print(f"Training with {optimizer}")
     plt.figure(figsize=(12, 4))
     plt.subplot(1,2,1)
     if optimizer == CustomZeroOrderOptimizer:
@@ -201,19 +224,21 @@ for i,optimizer in enumerate(optimizers):
         plt.savefig(f'loss_curve_{optimizer.__name__}_img_avg.png')
         continue
     try:
+        catching = optimizer[0]
+    except:
+        pass
+    else:
         loss_curve, valid_curve = two_loop_optimizer(train_loader, valid_loader, model, loss_fn, optimizer[0], optimizer[1])
-        plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
+        plt.plot(moving_average(loss_curve,100), label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Loss')
         plt.subplot(1,2,2)
-        plt.plot(valid_curve, label=optimizer.__name__)
+        plt.plot(valid_curve, label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
         plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_img_noavg.png')
         continue
-    except:
-        pass
     loss_curve, valid_curve = loop(train_loader, valid_loader, model, loss_fn, optimizer,averaging=True)
 
     plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
@@ -244,7 +269,7 @@ train_loader = train_dataloader
 valid_loader = val_dataloader
 for i,optimizer in enumerate(optimizers):
     rnn = RNN(vocab_size, 128, 128)
-    print(f"Training with {optimizer.__name__}")
+    print(f"Training with {optimizer}")
     plt.figure(figsize=(12, 4))
     plt.subplot(1,2,1)
     if optimizer == CustomZeroOrderOptimizer:
@@ -260,20 +285,21 @@ for i,optimizer in enumerate(optimizers):
         plt.savefig(f'loss_curve_{optimizer.__name__}_txt_noavg.png')
         continue
     try:
+        catching = optimizer[0]
+    except:
+        pass
+    else:
         loss_curve, valid_curve = two_loop_optimizer(train_loader, valid_loader, rnn, loss_fn, optimizer[0], optimizer[1])
-
-        plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
+        plt.plot(moving_average(loss_curve,100), label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Loss')
         plt.subplot(1,2,2)
-        plt.plot(valid_curve, label=optimizer.__name__)
+        plt.plot(valid_curve, label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
-        plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_txt_noavg.png')
+        plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_img_noavg.png')
         continue
-    except:
-        pass
     loss_curve, valid_curve = loop(train_loader, valid_loader, rnn, loss_fn, optimizer,averaging=True)
     plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
     plt.xlabel('Batch')
@@ -286,35 +312,37 @@ for i,optimizer in enumerate(optimizers):
     plt.savefig(f'loss_curve_{optimizer.__name__}_txt_noavg.png')
     continue
 for i,optimizer in enumerate(optimizers):
-    print(f"Training with {optimizer.__name__}")
+    print(f"Training with {optimizer}")
     plt.figure(figsize=(12, 4))
     plt.subplot(1,2,1)
     if optimizer == CustomZeroOrderOptimizer:
-        loss_curve, valid_curve = zeroth_order_loop(train_loader, valid_loader, model, loss_fn, optimizer,averaging=True)
+        loss_curve, valid_curve = zeroth_order_loop(train_loader, valid_loader, rnn, loss_fn, optimizer,averaging=True)
         plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
         plt.xlabel('Batch')
         plt.ylabel('Loss')
         plt.subplot(1,2,2)
-        plt.plot(valid_curve, label=optimizer.__name__)
+        plt.plot(valid_curve, label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
         plt.savefig(f'loss_curve_{optimizer.__name__}_img_avg.png')
         continue
     try:
-        loss_curve, valid_curve = two_loop_optimizer(train_loader, valid_loader, model, loss_fn, optimizer[0], optimizer[1])
-        plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
+        catching = optimizer[0]
+    except:
+        pass
+    else:
+        loss_curve, valid_curve = two_loop_optimizer(train_loader, valid_loader, rnn, loss_fn, optimizer[0], optimizer[1])
+        plt.plot(moving_average(loss_curve,100), label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Loss')
         plt.subplot(1,2,2)
-        plt.plot(valid_curve, label=optimizer.__name__)
+        plt.plot(valid_curve, label=f'{optimizer[0].__name__}_{optimizer[1].__name__}')
         plt.xlabel('Batch')
         plt.ylabel('Validation Accuracy')
         plt.legend()
         plt.savefig(f'loss_curve_{optimizer[0].__name__}_{optimizer[1].__name__}_img_noavg.png')
         continue
-    except:
-        pass
     loss_curve, valid_curve = loop(train_loader, valid_loader, rnn, loss_fn, optimizer,averaging=True)
     plt.plot(moving_average(loss_curve,100), label=optimizer.__name__)
     plt.xlabel('Batch')

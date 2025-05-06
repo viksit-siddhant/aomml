@@ -51,12 +51,9 @@ class Dataset(torch.utils.data.Dataset):
         self.data = data
 
     def __len__(self):
-        #return len(self.data)
-        return 500
+        return len(self.data)
 
     def __getitem__(self, idx):
-        idx = idx*12395234 + 183349213
-        idx = idx % len(self.data)
         item = self.data[idx]
         text = item['input_ids']
         label = item['label']
@@ -73,7 +70,7 @@ train_dataloader = DataLoader(
 )
 val_dataloader = DataLoader(
     val,
-    batch_size=32,
+    batch_size=1,
     shuffle=True,
 )
 
